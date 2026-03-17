@@ -9,6 +9,9 @@ on:
       - '**/*.json'
       - '**/*.yml'
       - '**/*.yaml'
+      - '**/*.html'
+      - '**/*.css'
+      - '**/*.cs'
 
 jobs:
   spellcheck:
