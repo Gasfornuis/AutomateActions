@@ -9,7 +9,7 @@ on:
 jobs:
   run-lint:
     runs-on: ubuntu-latest
-    
+
     permissions:
       contents: read
       packages: read
@@ -22,16 +22,92 @@ jobs:
           fetch-depth: 0
 
       - name: Lint Code Base
+        id: linter
         uses: github/super-linter@v5
+        continue-on-error: true
         env:
           VALIDATE_ALL_CODEBASE: true
           DEFAULT_BRANCH: "main"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CREATE_LOG_FILE: true
-          
+          LOG_FILE: super-linter.log
+          LOG_LEVEL: VERBOSE
+
+      - name: Genereer Lint Rapport
+        if: always()
+        shell: bash
+        run: |
+          LOG_FILE="super-linter.log"
+
+          if [ -f "$LOG_FILE" ]; then
+            sed -i 's/\x1b\[[0-9;]*m//g' "$LOG_FILE"
+          else
+            echo "Logbestand niet gevonden." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          ERRORS=$(grep -c '^\[ERROR\].*Found errors in' "$LOG_FILE" 2>/dev/null || echo "0")
+          PASSED=$(grep -c 'was linted with.*successfully' "$LOG_FILE" 2>/dev/null || echo "0")
+
+          {
+            echo "# Lint Rapport"
+            echo ""
+            if [ "$ERRORS" -gt 0 ]; then
+              echo "**Resultaat:** \`$ERRORS\` linter(s) gefaald, \`$PASSED\` checks geslaagd."
+            else
+              echo "**Resultaat:** Alle \`$PASSED\` checks geslaagd."
+            fi
+            echo ""
+            echo "---"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$ERRORS" -gt 0 ]; then
+            echo "## Fouten" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+
+            grep -n '\[ERROR\].*Found errors in' "$LOG_FILE" | while IFS=: read -r line_nr line_content; do
+              LINTER_NAME=$(echo "$line_content" | sed 's/.*Found errors in \[\(.*\)\] linter.*/\1/')
+
+              BLOCK_START=$((line_nr + 2))
+              BLOCK=$(sed -n "${BLOCK_START},/^------$/p" "$LOG_FILE" | head -n -1)
+
+              {
+                echo "<details>"
+                echo "<summary><code>${LINTER_NAME}</code></summary>"
+                echo ""
+                echo '```'
+                echo "$BLOCK"
+                echo '```'
+                echo ""
+                echo "</details>"
+                echo ""
+              } >> "$GITHUB_STEP_SUMMARY"
+            done
+          fi
+
+          {
+            echo "## Geslaagd"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          grep 'was linted with.*successfully' "$LOG_FILE" \
+            | sed 's/.*File:\[\(.*\)\] was linted with \[\(.*\)\] successfully/| `\1` | \2 |/' \
+            | sort -u \
+            | (echo "| Bestand | Linter |"; echo "|---|---|"; cat) \
+            >> "$GITHUB_STEP_SUMMARY"
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "---" >> "$GITHUB_STEP_SUMMARY"
+          echo "_$(date -u '+%Y-%m-%d %H:%M UTC') - super-linter v5_" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Bewaar het rapport als Artifact
         uses: actions/upload-artifact@v4
-        if: always() 
+        if: always()
         with:
           name: super-linter-rapport
           path: super-linter.log
+
+      - name: Controleer linter resultaat
+        if: steps.linter.outcome == 'failure'
+        run: exit 1
