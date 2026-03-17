@@ -139,9 +139,9 @@ jobs:
           passed=0; failed=0; skipped=0
           for r in "${results[@]}"; do
             case "$r" in
-              success)  ((passed++))  ;;
-              failure)  ((failed++))  ;;
-              skipped)  ((skipped++)) ;;
+              success)  passed=$((passed+1))  ;;
+              failure)  failed=$((failed+1))  ;;
+              skipped)  skipped=$((skipped+1)) ;;
             esac
           done
           echo "passed=$passed"   >> $GITHUB_OUTPUT
