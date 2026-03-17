@@ -1,0 +1,200 @@
+# .github/workflows/compliance.yml
+name: Compliance Checker
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    - cron: '0 6 * * 1'  # Every Monday at 06:00 UTC
+
+jobs:
+
+  # ─────────────────────────────────────────
+  # 1. SECRET SCANNING
+  # Works on any repo, even empty ones
+  # ─────────────────────────────────────────
+  secret-scan:
+    name: Secret Scanning (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─────────────────────────────────────────
+  # 2. DEPENDENCY VULNERABILITY SCAN
+  # Skipped automatically if no lock file found
+  # ─────────────────────────────────────────
+  dependency-scan:
+    name: Dependency Vulnerabilities (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for package lock file
+        id: check
+        run: |
+          if [ -f package-lock.json ] || [ -f yarn.lock ] || [ -f requirements.txt ] || [ -f go.sum ]; then
+            echo "found=true" >> $GITHUB_OUTPUT
+          else
+            echo "found=false" >> $GITHUB_OUTPUT
+            echo "No dependency files found — skipping scan."
+          fi
+
+      - name: Run Trivy
+        if: steps.check.outputs.found == 'true'
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: CRITICAL,HIGH
+          exit-code: 1
+          format: table
+
+  # ─────────────────────────────────────────
+  # 3. IaC MISCONFIGURATION SCAN
+  # soft_fail: true so it warns but won't block
+  # an empty repo — flip to false once you have infra
+  # ─────────────────────────────────────────
+  iac-scan:
+    name: IaC Scan (Checkov)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          soft_fail: true       # ← change to false once you have Terraform/K8s files
+          output_format: cli
+
+  # ─────────────────────────────────────────
+  # 4. SBOM GENERATION
+  # Always works — generates a bill of materials
+  # even for a repo with just config files
+  # ─────────────────────────────────────────
+  sbom:
+    name: Generate SBOM (Syft)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.spdx.json
+
+  # ─────────────────────────────────────────
+  # SUMMARY — add these back as you add code:
+  #   - license-check  (needs package.json)
+  #   - sast/CodeQL    (needs source code)
+  # ─────────────────────────────────────────
+  report:
+    name: Compliance Summary
+    runs-on: ubuntu-latest
+    needs: [secret-scan, dependency-scan, iac-scan, sbom]
+    if: always()
+    steps:
+      - name: Resolve status icons
+        id: icons
+        run: |
+          resolve() {
+            case "$1" in
+              success)  echo "✅ Passed" ;;
+              failure)  echo "❌ Failed" ;;
+              skipped)  echo "⏭️ Skipped" ;;
+              cancelled)echo "🚫 Cancelled" ;;
+              *)        echo "⚠️ Unknown" ;;
+            esac
+          }
+          echo "secret=$(resolve '${{ needs.secret-scan.result }}')"       >> $GITHUB_OUTPUT
+          echo "deps=$(resolve '${{ needs.dependency-scan.result }}')"     >> $GITHUB_OUTPUT
+          echo "iac=$(resolve '${{ needs.iac-scan.result }}')"             >> $GITHUB_OUTPUT
+          echo "sbom=$(resolve '${{ needs.sbom.result }}')"                >> $GITHUB_OUTPUT
+
+      - name: Count results
+        id: counts
+        run: |
+          results=(
+            "${{ needs.secret-scan.result }}"
+            "${{ needs.dependency-scan.result }}"
+            "${{ needs.iac-scan.result }}"
+            "${{ needs.sbom.result }}"
+          )
+          passed=0; failed=0; skipped=0
+          for r in "${results[@]}"; do
+            case "$r" in
+              success)  ((passed++))  ;;
+              failure)  ((failed++))  ;;
+              skipped)  ((skipped++)) ;;
+            esac
+          done
+          echo "passed=$passed"   >> $GITHUB_OUTPUT
+          echo "failed=$failed"   >> $GITHUB_OUTPUT
+          echo "skipped=$skipped" >> $GITHUB_OUTPUT
+
+      - name: Write summary
+        run: |
+          S="${{ steps.counts.outputs.failed }}"
+          if [ "$S" = "0" ]; then
+            OVERALL="### ✅ All compliance checks passed"
+          else
+            OVERALL="### ❌ $S check(s) failed — review required"
+          fi
+
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## 🛡️ Compliance Report
+
+          > **Triggered by:** \`${{ github.event_name }}\` on \`${{ github.ref_name }}\`
+          > **Commit:** \`${{ github.sha }}\`
+          > **Run:** [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          > **Time:** $(date -u '+%Y-%m-%d %H:%M UTC')
+
+          ---
+
+          $OVERALL
+
+          | # | Check | Tool | Result | Details |
+          |---|-------|------|--------|---------|
+          | 1 | Secret Scanning     | Gitleaks | ${{ steps.icons.outputs.secret }} | Scans full git history for leaked credentials |
+          | 2 | Dependency Scan     | Trivy    | ${{ steps.icons.outputs.deps }}   | Checks for CRITICAL/HIGH CVEs in dependencies |
+          | 3 | IaC Misconfiguration| Checkov  | ${{ steps.icons.outputs.iac }}    | Scans Terraform/K8s for security misconfigs (soft fail) |
+          | 4 | SBOM Generation     | Syft     | ${{ steps.icons.outputs.sbom }}   | Software bill of materials saved as artifact |
+
+          ---
+
+          **Results at a glance**
+          - ✅ Passed: ${{ steps.counts.outputs.passed }}
+          - ❌ Failed: ${{ steps.counts.outputs.failed }}
+          - ⏭️ Skipped: ${{ steps.counts.outputs.skipped }}
+
+          ---
+
+          > ℹ️ **Not yet enabled** (add once source code exists)
+          > - 🔬 SAST / CodeQL — static code analysis
+          > - 📄 License Compliance — checks for disallowed OSS licenses
+
+          EOF
+
+      - name: Fail if any critical check failed
+        if: |
+          needs.secret-scan.result == 'failure' ||
+          needs.dependency-scan.result == 'failure'
+        run: |
+          echo "❌ Secret scanning or dependency scan failed. Blocking merge."
+          exit 1
