@@ -1,0 +1,14 @@
+frontend:
+  - "src/frontend/**"
+
+backend:
+  - "src/backend/**"
+
+documentation:
+  - "*.md"
+
+tests:
+  - "tests/**"
+
+bugfix:
+  - "src/**" # Any code changes in src could be a bugfix
