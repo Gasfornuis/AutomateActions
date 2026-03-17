@@ -46,7 +46,7 @@ jobs:
             exit 0
           fi
 
-          ERRORS=$(grep -c '^\[ERROR\].*Found errors in' "$LOG_FILE" 2>/dev/null || echo "0")
+          ERRORS=$(grep -c '\[ERROR\].*Found errors in' "$LOG_FILE" 2>/dev/null || echo "0")
           PASSED=$(grep -c 'was linted with.*successfully' "$LOG_FILE" 2>/dev/null || echo "0")
 
           {
@@ -69,7 +69,7 @@ jobs:
             grep -n '\[ERROR\].*Found errors in' "$LOG_FILE" | while IFS=: read -r line_nr line_content; do
               LINTER_NAME=$(echo "$line_content" | sed 's/.*Found errors in \[\(.*\)\] linter.*/\1/')
 
-              BLOCK_START=$((line_nr + 2))
+              BLOCK_START=$((line_nr + 3))
               BLOCK=$(sed -n "${BLOCK_START},/^------$/p" "$LOG_FILE" | head -n -1)
 
               {
