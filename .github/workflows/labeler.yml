@@ -1,14 +1,12 @@
-frontend:
-  - "src/frontend/**"
-
-backend:
-  - "src/backend/**"
+bug:
+  - "src/**"          # Any code changes → bug
 
 documentation:
-  - "*.md"
+  - "*.md"            # Markdown files → documentation
 
-tests:
-  - "tests/**"
+enhancement:
+  - "src/frontend/**"  # Frontend changes → enhancement
+  - "src/backend/**"   # Backend changes → enhancement
 
-bugfix:
-  - "src/**" # Any code changes in src could be a bugfix
+good first issue:
+  - "examples/**"      # Example files → good first issue
