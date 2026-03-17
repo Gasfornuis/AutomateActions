@@ -1,12 +1,3 @@
 # AutomateActions
 Automate actions
-
-
-
-
-
-
-
-
-
-Hoi
+EDIT FILEEEES
