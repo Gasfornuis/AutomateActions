@@ -47,13 +47,6 @@ jobs:
           # Strip ANSI escapes en carriage returns met perl (betrouwbaarder dan sed)
           perl -pi -e 's/\e\[[0-9;]*m//g; s/\r//g' "$LOG_FILE"
 
-          # Debug: toon wat grep vindt
-          echo "--- DEBUG: ERROR regels in logbestand ---"
-          grep 'ERROR.*Found errors in' "$LOG_FILE" || echo "(geen ERROR regels gevonden)"
-          echo "--- DEBUG: ERRORS FOUND regels ---"
-          grep 'ERRORS FOUND' "$LOG_FILE" || echo "(geen ERRORS FOUND regels gevonden)"
-          echo "---"
-
           ERRORS=$(grep -c 'ERRORS FOUND' "$LOG_FILE" 2>/dev/null || echo "0")
           PASSED=$(grep -c 'was linted with.*successfully' "$LOG_FILE" 2>/dev/null || echo "0")
 
