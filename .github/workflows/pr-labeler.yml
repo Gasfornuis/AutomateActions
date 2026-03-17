@@ -1,6 +1,5 @@
 name: PR Labeler
-# Test this pr labeler with this pull request
-# Trigger this workflow on pull request creation or editing
+
 on:
   pull_request:
     types: [opened, edited]
@@ -9,10 +8,10 @@ jobs:
   label:
     runs-on: ubuntu-latest
     steps:
-      # Checkout the repo so the action can read files
       - uses: actions/checkout@v3
 
-      # Apply labels based on file paths using the labeler action
       - uses: actions/labeler@v3
         with:
           repo-token: "${{ secrets.GITHUB_TOKEN }}"
+          configuration-path: .github/labeler.yml
+          sync-labels: false   # Only use existing labels
