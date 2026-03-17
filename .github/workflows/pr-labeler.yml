@@ -1,5 +1,5 @@
 name: PR Labeler
-
+# Test this pr labeler with this pull request
 # Trigger this workflow on pull request creation or editing
 on:
   pull_request:
