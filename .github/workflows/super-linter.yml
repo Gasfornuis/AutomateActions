@@ -39,14 +39,22 @@ jobs:
         run: |
           LOG_FILE="super-linter.log"
 
-          if [ -f "$LOG_FILE" ]; then
-            sed -i 's/\x1b\[[0-9;]*m//g' "$LOG_FILE"
-          else
+          if [ ! -f "$LOG_FILE" ]; then
             echo "Logbestand niet gevonden." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
-          ERRORS=$(grep -c '\[ERROR\].*Found errors in' "$LOG_FILE" 2>/dev/null || echo "0")
+          # Strip ANSI escapes en carriage returns met perl (betrouwbaarder dan sed)
+          perl -pi -e 's/\e\[[0-9;]*m//g; s/\r//g' "$LOG_FILE"
+
+          # Debug: toon wat grep vindt
+          echo "--- DEBUG: ERROR regels in logbestand ---"
+          grep 'ERROR.*Found errors in' "$LOG_FILE" || echo "(geen ERROR regels gevonden)"
+          echo "--- DEBUG: ERRORS FOUND regels ---"
+          grep 'ERRORS FOUND' "$LOG_FILE" || echo "(geen ERRORS FOUND regels gevonden)"
+          echo "---"
+
+          ERRORS=$(grep -c 'ERRORS FOUND' "$LOG_FILE" 2>/dev/null || echo "0")
           PASSED=$(grep -c 'was linted with.*successfully' "$LOG_FILE" 2>/dev/null || echo "0")
 
           {
@@ -66,11 +74,13 @@ jobs:
             echo "## Fouten" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
 
-            grep -n '\[ERROR\].*Found errors in' "$LOG_FILE" | while IFS=: read -r line_nr line_content; do
-              LINTER_NAME=$(echo "$line_content" | sed 's/.*Found errors in \[\(.*\)\] linter.*/\1/')
+            # Zoek elk error-blok tussen de ------ markers
+            grep -n 'ERROR.*Found errors in' "$LOG_FILE" | while IFS=: read -r line_nr _rest; do
+              LINTER_NAME=$(echo "$_rest" | sed 's/.*Found errors in \[\(.*\)\] linter.*/\1/')
 
+              # Sla de "Error code:" regel en de openings "------" over
               BLOCK_START=$((line_nr + 3))
-              BLOCK=$(sed -n "${BLOCK_START},/^------$/p" "$LOG_FILE" | head -n -1)
+              BLOCK=$(sed -n "${BLOCK_START},/^------/p" "$LOG_FILE" | sed '/^------/d')
 
               {
                 echo "<details>"
